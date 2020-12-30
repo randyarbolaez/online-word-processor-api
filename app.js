@@ -11,39 +11,43 @@ server.listen(port, () => {
 
 // Chatroom
 
-var numUsers = 0;
-let allUsers = [];
+let allUsersObj = {};
 
 io.on("connection", (socket) => {
   var addedUser = false;
-  // when the client emits 'new message', this listens and executes
-  socket.on("new message", (data) => {
-    // console.log(data, "data");
-    // we tell the client to execute 'new message'
-    socket.broadcast.emit("new message", {
+  socket.on("new message", ({ message, id }) => {
+    io.to(id).emit("new message", {
       username: socket.username,
-      message: data,
+      message,
     });
   });
 
   // when the client emits 'add user', this listens and executes
-  socket.on("add user", (username) => {
+  socket.on("add user", (data) => {
     if (addedUser) return;
-    console.log("added user!!!!", username);
-    // we store the username in the socket session for this client
+    let { username } = data;
+    let id = data.urlID || data.generatedID;
+    if (allUsersObj[id] == undefined) {
+      allUsersObj[id] = [username];
+    } else {
+      allUsersObj[id] = [...allUsersObj[id], username];
+    }
+    socket.join(id);
     socket.username = username;
-    ++numUsers;
+    socket.roomID = id;
+
     addedUser = true;
-    allUsers.push(username);
+
+    console.log(allUsersObj[id].length, " allUsersObj[id].length");
     socket.emit("login", {
-      numUsers: numUsers,
-      allUsers,
+      numUsers: allUsersObj[id].length,
+      allUsers: allUsersObj[id],
     });
-    // echo globally (all clients) that a person has connected
-    socket.broadcast.emit("user joined", {
+
+    io.to(id).emit("user joined", {
       username: socket.username,
-      numUsers: numUsers,
-      allUsers,
+      numUsers: allUsersObj[id].length,
+      allUsers: allUsersObj[id],
     });
   });
 
@@ -64,16 +68,21 @@ io.on("connection", (socket) => {
   // when the user disconnects.. perform this
   socket.on("disconnect", () => {
     if (addedUser) {
-      --numUsers;
+      let indexOfUserThatLeft = allUsersObj[socket.roomID].indexOf(
+        socket.username
+      );
+      allUsersObj[socket.roomID].splice(indexOfUserThatLeft, 1);
+      console.log(allUsersObj[socket.roomID]);
+      // socket.broadcast.emit("user left", {
+      //   username: socket.username,
+      //   numUsers: numUsers,
+      //   usersLeft: allUsers,
+      // });
 
-      let indexOfUserThatLeft = allUsers.indexOf(socket.username);
-      allUsers.splice(indexOfUserThatLeft, 1);
-      // echo globally that this client has left
-      console.log("user left!!!!", socket.username);
-      socket.broadcast.emit("user left", {
+      io.to(socket.roomID).emit("user left", {
         username: socket.username,
-        numUsers: numUsers,
-        usersLeft: allUsers,
+        numUsers: allUsersObj[socket.roomID].length,
+        usersLeft: allUsersObj[socket.roomID],
       });
     }
   });
